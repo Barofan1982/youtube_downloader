@@ -1,0 +1,17 @@
+# Whitelist approach — C:\Test is historically a git repo for the
+# youtube_downloader project, but this directory is also used as a
+# workspace for many unrelated projects. To prevent accidental
+# commits of unrelated work, we ignore everything by default and
+# explicitly whitelist the youtube_downloader tree.
+#
+# Any NEW project added under C:\Test\ should have its own .git
+# (run `git init` inside the subfolder before making changes).
+
+# Ignore everything at the root by default.
+/*
+
+# Whitelist: this .gitignore file itself and the youtube_downloader tree.
+!/.gitignore
+!/README.md
+!/youtube_downloader/
+!/youtube_downloader_v2/

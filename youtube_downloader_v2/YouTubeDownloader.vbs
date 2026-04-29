@@ -1,15 +1,16 @@
 ' YouTube Downloader V2 - Launcher
-' Hide console and launch Python GUI
+' Launch the tkinter GUI without a console window
 
 Option Explicit
 
-Dim objShell, objFSO, scriptPath, pythonScript
+Dim objShell, objFSO, scriptPath, pythonScript, pythonExe, logFile, command
 
 Set objShell = CreateObject("WScript.Shell")
 Set objFSO = CreateObject("Scripting.FileSystemObject")
 
 scriptPath = objFSO.GetParentFolderName(WScript.ScriptFullName)
 pythonScript = scriptPath & "\gui.py"
+logFile = scriptPath & "\launcher_error.log"
 
 ' Check if Python script exists
 If Not objFSO.FileExists(pythonScript) Then
@@ -17,9 +18,25 @@ If Not objFSO.FileExists(pythonScript) Then
     WScript.Quit 1
 End If
 
-' Launch Python GUI with hidden window
-' 0 = hidden window, false = don't wait
-objShell.Run "python """ & pythonScript & """", 0, False
+' Prefer pythonw.exe so the console stays hidden while the GUI remains visible.
+pythonExe = ""
+On Error Resume Next
+pythonExe = objShell.Exec("where pythonw").StdOut.ReadLine()
+If Err.Number <> 0 Or pythonExe = "" Then
+    Err.Clear
+    pythonExe = objShell.Exec("where python").StdOut.ReadLine()
+End If
+On Error GoTo 0
+
+If pythonExe = "" Then
+    MsgBox "Error: Python was not found in PATH." & vbCrLf & "Please install Python or add it to PATH.", vbCritical, "Error"
+    WScript.Quit 1
+End If
+
+command = """" & pythonExe & """ """ & pythonScript & """"
+
+' 1 = normal window. With pythonw.exe this shows the tkinter GUI without a console.
+objShell.Run command, 1, False
 
 Set objShell = Nothing
 Set objFSO = Nothing

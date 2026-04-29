@@ -5,26 +5,35 @@ Auto-detect highest quality, merge to MP4
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, scrolledtext
 import os
 import sys
 import re
 import subprocess
 import threading
+import traceback
 from pathlib import Path
 
 
 class DownloaderApp:
+    QUALITY_OPTIONS = {
+        "720p": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+        "1080p": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        "1440p / 2K": "bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1440]+bestaudio/best[height<=1440]/best",
+        "2160p / 4K": "bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio/best[height<=2160]/best",
+        "Best Available": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
+    }
+
     def __init__(self, root):
         self.root = root
         self.root.title("YouTube Downloader")
-        self.root.geometry("500x280")
-        self.root.resizable(False, False)
+        self.root.geometry("620x430")
+        self.root.minsize(560, 380)
 
         # Center window
         self.root.update_idletasks()
-        x = (self.root.winfo_screenwidth() - 500) // 2
-        y = (self.root.winfo_screenheight() - 280) // 2
+        x = (self.root.winfo_screenwidth() - 620) // 2
+        y = (self.root.winfo_screenheight() - 430) // 2
         self.root.geometry(f"+{x}+{y}")
 
         self.setup_ui()
@@ -47,6 +56,20 @@ class DownloaderApp:
         self.url_entry.pack(fill=tk.X, pady=(5, 10), ipady=5)
         self.url_entry.focus()
 
+        # Quality selection
+        quality_frame = ttk.Frame(frame)
+        quality_frame.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(quality_frame, text="Quality:", font=("Segoe UI", 10)).pack(side=tk.LEFT)
+        self.quality_var = tk.StringVar(value="1080p")
+        self.quality_combo = ttk.Combobox(
+            quality_frame,
+            textvariable=self.quality_var,
+            values=list(self.QUALITY_OPTIONS.keys()),
+            state="readonly",
+            width=16,
+        )
+        self.quality_combo.pack(side=tk.LEFT, padx=(8, 0))
+
         # Download button
         self.btn = ttk.Button(frame, text="Download", command=self.start_download)
         self.btn.pack(fill=tk.X, pady=(5, 10), ipady=8)
@@ -55,11 +78,17 @@ class DownloaderApp:
         self.progress = ttk.Progressbar(frame, mode='determinate', maximum=100)
         self.progress.pack(fill=tk.X, pady=(5, 10))
 
-        # Status label
-        self.status_var = tk.StringVar(value="Ready. Paste URL and click Download.")
-        self.status = ttk.Label(frame, textvariable=self.status_var,
-                               font=("Segoe UI", 9), wraplength=460)
-        self.status.pack(anchor=tk.W)
+        # Log area
+        ttk.Label(frame, text="Status:", font=("Segoe UI", 10)).pack(anchor=tk.W, pady=(4, 4))
+        self.log = scrolledtext.ScrolledText(
+            frame,
+            height=7,
+            wrap=tk.WORD,
+            font=("Consolas", 9),
+            state=tk.DISABLED,
+        )
+        self.log.pack(fill=tk.BOTH, expand=True)
+        self.set_status("Ready. Paste URL and click Download.")
 
         # Output path
         self.output_dir = Path.home() / "Downloads"
@@ -71,12 +100,12 @@ class DownloaderApp:
         try:
             subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
         except:
-            self.status_var.set("Warning: ffmpeg not found. Please install ffmpeg.")
+            self.set_status("Warning: ffmpeg not found. Please install ffmpeg.")
 
         try:
             import yt_dlp
         except ImportError:
-            self.status_var.set("Installing yt-dlp...")
+            self.set_status("Installing yt-dlp...")
             self.root.update()
             subprocess.run([sys.executable, '-m', 'pip', 'install', '-U', 'yt-dlp'],
                           capture_output=True)
@@ -97,14 +126,15 @@ class DownloaderApp:
 
         self.btn.config(state='disabled')
         self.progress['value'] = 0
-        self.status_var.set("Starting...")
+        quality = self.quality_var.get()
+        self.set_status(f"Starting download... Quality limit: {quality}")
 
         # Run download in thread
-        thread = threading.Thread(target=self.download, args=(url,))
+        thread = threading.Thread(target=self.download, args=(url, quality))
         thread.daemon = True
         thread.start()
 
-    def download(self, url):
+    def download(self, url, quality):
         """Download with yt-dlp"""
         try:
             from yt_dlp import YoutubeDL
@@ -124,10 +154,10 @@ class DownloaderApp:
                     self.root.after(0, lambda: self.update_progress(pct, f"Downloading: {pct:.1f}% | Speed: {speed} | ETA: {eta}"))
 
                 elif d['status'] == 'finished':
-                    self.root.after(0, lambda: self.status_var.set("Download finished, merging audio/video..."))
+                    self.root.after(0, lambda: self.set_status("Download finished, merging audio/video..."))
 
             ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'format': self.QUALITY_OPTIONS[quality],
                 'outtmpl': str(self.output_dir / '%(title)s.%(ext)s'),
                 'merge_output_format': 'mp4',
                 'postprocessors': [{
@@ -150,18 +180,24 @@ class DownloaderApp:
 
     def update_progress(self, value, msg):
         self.progress['value'] = value
-        self.status_var.set(msg)
+        self.set_status(msg)
 
     def download_complete(self, title):
         self.progress['value'] = 100
-        self.status_var.set(f"Complete: {title}")
+        self.set_status(f"Complete: {title}")
         self.btn.config(state='normal')
         messagebox.showinfo("Success", f"Download complete!\n\nSaved to: {self.output_dir}")
 
     def download_error(self, error):
-        self.status_var.set(f"Error: {error}")
+        self.set_status(f"Error: {error}")
         self.btn.config(state='normal')
         messagebox.showerror("Error", f"Download failed:\n{error}")
+
+    def set_status(self, msg):
+        self.log.config(state=tk.NORMAL)
+        self.log.insert(tk.END, msg + "\n")
+        self.log.see(tk.END)
+        self.log.config(state=tk.DISABLED)
 
 
 def main():
@@ -176,4 +212,9 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception:
+        log_path = Path(__file__).with_name('youtube_downloader_v2_error.log')
+        log_path.write_text(traceback.format_exc(), encoding='utf-8')
+        raise
